@@ -2287,17 +2287,23 @@ app.post('/api/migrate/fix-branches', authMiddleware, async (req, res) => {
 // ==========================================
 // BILL NUMBER GENERATION ENDPOINT
 // ==========================================
+// BILL NUMBER GENERATION
 app.get('/api/bills/next-number', authMiddleware, async (req, res) => {
   try {
-    const year = String(new Date().getFullYear()).slice(-2);
-    const result = await pool.query(`SELECT bill_no FROM bill_book WHERE bill_no LIKE $1 ORDER BY id DESC LIMIT 1`, [`BILL/${year}/%`]);
-    let nextSerial = 1;
-    if (result.rows.length > 0 && result.rows[0].bill_no) {
-      const parts = result.rows[0].bill_no.split('/');
-      if (parts.length === 3) nextSerial = parseInt(parts[2]) + 1;
-    }
-    const nextBillNo = `BILL/${year}/${String(nextSerial).padStart(4, '0')}`;
-    res.json({ bill_no: nextBillNo });
+    const result = await pool.query(`
+      SELECT COALESCE(
+        MAX(SUBSTRING(bill_no FROM '/([0-9]+)$')::INTEGER),
+        1139
+      ) AS last_serial
+      FROM bill_book
+      WHERE bill_no ~ '^BTC/26-27/[0-9]+$'
+    `);
+
+    const nextSerial = Number(result.rows[0].last_serial) + 1;
+
+    res.json({
+      bill_no: `BTC/26-27/${nextSerial}`
+    });
   } catch (err) {
     console.error('Bill number generation error:', err.message);
     res.status(500).json({ error: err.message });
