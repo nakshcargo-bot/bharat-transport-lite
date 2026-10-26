@@ -1,18 +1,25 @@
-
 import api from '../api'
 
 const INV_PREFIX = 'BTC/26-27/'
 const SERIAL_STORAGE_KEY = 'btc_last_serial'
 
 export const getNextSerialNumber = async () => {
-  const response = await api.get('/api/bills/last-serial')
-  const lastNum = Number(response.data?.lastSerial)
+  const response = await api.get('/api/bills/next-number')
+  const billNumber = String(response.data?.bill_no || '')
+  const prefix = INV_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = billNumber.match(new RegExp(`^${prefix}(\\d+)$`))
 
-  if (!Number.isSafeInteger(lastNum) || lastNum < 0) {
+  if (!match) {
+    throw new Error('Server returned an invalid bill number.')
+  }
+
+  const serial = Number(match[1])
+
+  if (!Number.isSafeInteger(serial) || serial < 1) {
     throw new Error('Server returned an invalid bill serial number.')
   }
 
-  return `${INV_PREFIX}${lastNum + 1}`
+  return `${INV_PREFIX}${serial}`
 }
 
 export const updateBillSerial = (billNumber) => {
