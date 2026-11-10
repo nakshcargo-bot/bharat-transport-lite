@@ -90,16 +90,20 @@ export default function PartyEntry() {
   const generateCustomerCode = async () => {
     try {
       const res = await customerAPI.getAll()
-      const last = res.data[res.data.length - 1]
-      if (last && last.customer_code) {
-        const match = last.customer_code.match(/(\d+)$/)
-        if (match) {
-          const nextNum = parseInt(match[1]) + 1
-          setFormData(prev => ({ ...prev, customer_code: `CUST${String(nextNum).padStart(4, '0')}` }))
+      // FIX: res.data kabhi array hota hai, kabhi { data: [...] } hota hai - dono handle kiya
+      const list = Array.isArray(res.data) ? res.data : res.data?.data
+      if (Array.isArray(list) && list.length > 0) {
+        const last = list[list.length - 1]
+        if (last && last.customer_code) {
+          const match = last.customer_code.match(/(\d+)$/)
+          if (match) {
+            const nextNum = parseInt(match[1]) + 1
+            setFormData(prev => ({ ...prev, customer_code: `CUST${String(nextNum).padStart(4, '0')}` }))
+            return
+          }
         }
-      } else {
-        setFormData(prev => ({ ...prev, customer_code: 'CUST0001' }))
       }
+      setFormData(prev => ({ ...prev, customer_code: 'CUST0001' }))
     } catch (err) {
       console.error('Customer code generation failed:', err)
       toast.error('Unable to load customer codes. The server will generate a code when saved.')
@@ -157,6 +161,19 @@ export default function PartyEntry() {
         await customerAPI.update(id, formData)
         toast.success('Party update हो गई!')
       } else {
+        // FIX: Duplicate Party mat banao - naam se pehle check karo
+        try {
+          const res = await customerAPI.getAll()
+          const list = Array.isArray(res.data) ? res.data : res.data?.data || []
+          const already = list.find(p => String(p.customer_name || p.party_name || p.name || '').trim().toLowerCase() === String(formData.customer_name).trim().toLowerCase())
+          if (already) {
+            toast.error(`${formData.customer_name} pehle se Party Master me hai. Dobara save nahi hogi.`)
+            setLoading(false)
+            return
+          }
+        } catch (checkErr) {
+          console.warn('Duplicate party check fail, phir bhi save kar rahe hai:', checkErr)
+        }
         await customerAPI.create(formData)
         toast.success('New Party add हो गई!')
       }
