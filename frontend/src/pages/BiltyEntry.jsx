@@ -292,6 +292,68 @@ export default function BiltyEntry({ branchMode = false, branchCode: branchSlug 
     }
   }
 
+  // --- PARTY AUTO-SAVE + AUTO-FILL FIX (sirf ye add hua hai) ---
+  const findCustomerByName = (name) => {
+    const n = String(name || '').trim().toLowerCase()
+    if (!n) return null
+    return customers.find(c => String(c.customer_name || c.party_name || c.name || '').trim().toLowerCase() === n) || null
+  }
+
+  const autoFillPartyByName = (type, name) => {
+    const found = findCustomerByName(name)
+    if (!found) return
+    setFormData(prev => ({
+      ...prev,
+      [`${type}_address`]: found.address || found.party_address || prev[`${type}_address`],
+      [`${type}_mobile`]: found.mobile || found.phone || prev[`${type}_mobile`],
+      [`${type}_gst`]: found.gst_no || found.gst || found.party_gst || prev[`${type}_gst`],
+      [`customer_code_${type}`]: found.customer_code || found.party_code || found.code || prev[`customer_code_${type}`],
+    }))
+  }
+
+  // Nayi Party ho to Customer Master me ek baar save kar do, taaki dobara na type karna pade
+  const ensurePartySaved = async (type, currentForm) => {
+    const form = currentForm || formData
+    const name = String(form[`${type}_name`] || '').trim()
+    if (!name) return null
+    const existing = findCustomerByName(name)
+    if (existing) return existing
+    const payload = {
+      customer_name: name,
+      party_name: name,
+      name: name,
+      address: form[`${type}_address`] || '',
+      party_address: form[`${type}_address`] || '',
+      mobile: form[`${type}_mobile`] || '',
+      phone: form[`${type}_mobile`] || '',
+      gst_no: form[`${type}_gst`] || '',
+      gst: form[`${type}_gst`] || '',
+      party_gst: form[`${type}_gst`] || '',
+    }
+    try {
+      let saved = null
+      if (customerAPI?.create) {
+        const res = await customerAPI.create(payload)
+        saved = res?.data?.data || res?.data || null
+      } else {
+        const res = await api.post('/customers', payload)
+        saved = res?.data?.data || res?.data || null
+      }
+      if (saved) {
+        const newCustomer = { ...saved, ...payload, id: saved.id ?? saved.customer_id, customer_name: name }
+        setCustomers(prev => {
+          if (prev.some(c => String(c.customer_name || '').trim().toLowerCase() === name.toLowerCase())) return prev
+          return [...prev, newCustomer]
+        })
+        toast.success(`${name} Party Master me save ho gayi`)
+        return newCustomer
+      }
+    } catch (e) {
+      console.warn('Party auto-save fail:', e)
+    }
+    return null
+  }
+
   const generateLRNo = async (selectedBranch = branchCode) => {
     const requestId = ++lrGenerationRequest.current
     if (!selectedBranch) {
@@ -397,6 +459,9 @@ export default function BiltyEntry({ branchMode = false, branchCode: branchSlug 
     }
     setLoading(true)
     try {
+      // Bilty save se pehle nayi Party ko Master me save karo - Admin + sab Branch me ek hi Master hai
+      await ensurePartySaved('consignor', formData)
+      await ensurePartySaved('consignee', formData)
       const billedAt = formData.bill_to_party === 'CONSIGNOR'
         ? formData.consignor_name
         : formData.bill_to_party === 'CONSIGNEE'
@@ -530,7 +595,7 @@ export default function BiltyEntry({ branchMode = false, branchCode: branchSlug 
             <h3 className="text-xl font-bold text-white mb-4"> Section 2: Consignor (भेजने वाला)</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4"><div><CustomSelect label="Select Party" name="consignor_select" value="" onChange={(e) => handleCustomerSelect('consignor', e.target.value)} options={consignorOptions} searchable /></div></div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div><label className="block text-gray-300 text-sm font-medium mb-1">Consignor Name *</label><input type="text" name="consignor_name" value={formData.consignor_name} onChange={handleChange} required className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white" /></div>
+              <div><label className="block text-gray-300 text-sm font-medium mb-1">Consignor Name *</label><input type="text" name="consignor_name" value={formData.consignor_name} onChange={handleChange} onBlur={(e) => autoFillPartyByName('consignor', e.target.value)} required className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white" /></div>
               <div><label className="block text-gray-300 text-sm font-medium mb-1">Consignor Mobile *</label><input type="text" name="consignor_mobile" value={formData.consignor_mobile} onChange={handleChange} required className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white" /></div>
               <div className="md:col-span-2"><label className="block text-gray-300 text-sm font-medium mb-1">Consignor Address *</label><textarea name="consignor_address" value={formData.consignor_address} onChange={handleChange} required rows="2" className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white" /></div>
               <div><label className="block text-gray-300 text-sm font-medium mb-1">Consignor GST</label><input type="text" name="consignor_gst" value={formData.consignor_gst} onChange={handleChange} className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white" /></div>
@@ -542,7 +607,7 @@ export default function BiltyEntry({ branchMode = false, branchCode: branchSlug 
             <h3 className="text-xl font-bold text-white mb-4"> Section 3: Consignee (लेने वाला)</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4"><div><CustomSelect label="Select Party" name="consignee_select" value="" onChange={(e) => handleCustomerSelect('consignee', e.target.value)} options={consigneeOptions} searchable /></div></div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div><label className="block text-gray-300 text-sm font-medium mb-1">Consignee Name *</label><input type="text" name="consignee_name" value={formData.consignee_name} onChange={handleChange} required className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white" /></div>
+              <div><label className="block text-gray-300 text-sm font-medium mb-1">Consignee Name *</label><input type="text" name="consignee_name" value={formData.consignee_name} onChange={handleChange} onBlur={(e) => autoFillPartyByName('consignee', e.target.value)} required className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white" /></div>
               <div><label className="block text-gray-300 text-sm font-medium mb-1">Consignee Mobile *</label><input type="text" name="consignee_mobile" value={formData.consignee_mobile} onChange={handleChange} required className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white" /></div>
               <div className="md:col-span-2"><label className="block text-gray-300 text-sm font-medium mb-1">Consignee Address *</label><textarea name="consignee_address" value={formData.consignee_address} onChange={handleChange} required rows="2" className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white" /></div>
               <div><label className="block text-gray-300 text-sm font-medium mb-1">Consignee GST</label><input type="text" name="consignee_gst" value={formData.consignee_gst} onChange={handleChange} className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white" /></div>
